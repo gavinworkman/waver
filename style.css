@@ -62,3 +62,16 @@ canvas {
 .control-btn:hover {
     color: #888; /* Dim slightly when tapped/hovered */
 }
+
+.small {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 4rem;
+    cursor: pointer;
+    font-family: 'VT323', monospace;
+}
+
+.small:hover {
+    color: #888; /* Dim slightly when tapped/hovered */
+}
