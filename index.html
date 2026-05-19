@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Terminal Player</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="player-container">
+        <div class="info-section">
+            <h1 id="track-name">Track_Name</h1>
+            <h2 id="artist-name">Artist</h2>
+            <h3 id="album-name">Album</h3>
+        </div>
+
+        <div class="visualizer-section">
+            <canvas id="waveform-canvas"></canvas>
+        </div>
+
+        <div class="controls-section">
+            <button id="btn-shuffle" class="control-btn">🔀</button>
+            <button id="btn-prev" class="control-btn">⏮</button>
+            <button id="btn-play" class="control-btn">▶</button>
+            <button id="btn-next" class="control-btn">⏭</button>
+            <button id="btn-add" class="control-btn">➕</button>
+        </div>
+        
+        <audio id="audio-player" src="test.mp3" crossorigin="anonymous"></audio>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
