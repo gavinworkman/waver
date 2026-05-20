@@ -7,9 +7,7 @@ import { spawn, execSync } from 'child_process';
 const app = express();
 const PORT = 8080;
 
-// USB Mount directory check, fallback to local ./music
-const USB_DIR = '/mnt/usb';
-const MUSIC_DIR = fs.existsSync(USB_DIR) ? USB_DIR : path.resolve('./music');
+const MUSIC_DIR = path.resolve('./music');
 console.log(`[System] Using music directory: ${MUSIC_DIR}`);
 
 const YT_DLP_PATH = fs.existsSync('/home/wavr/.local/bin/yt-dlp') 

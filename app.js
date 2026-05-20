@@ -44,6 +44,12 @@ const modalOverlay = document.getElementById('folder-modal');
 const modalFolderList = document.getElementById('modal-folder-list');
 const btnCloseModal = document.getElementById('btn-close-modal');
 
+// Create Folder Modal Elements
+const createFolderModal = document.getElementById('create-folder-modal');
+const newFolderInput = document.getElementById('new-folder-input');
+const btnCancelFolder = document.getElementById('btn-cancel-folder');
+const btnSubmitFolder = document.getElementById('btn-submit-folder');
+
 // Application State (Synced from Server)
 let isPlaying = false;
 let isPaused = false;
@@ -579,24 +585,44 @@ function renderLibrary(data) {
     }
 }
 
-// Create Folder API
-btnCreateFolder.addEventListener('click', async () => {
-    const name = prompt('ENTER NEW FOLDER (PLAYLIST) NAME:');
-    if (!name || !name.trim()) return;
+// Open Create Folder Modal
+btnCreateFolder.addEventListener('click', () => {
+    newFolderInput.value = '';
+    createFolderModal.classList.remove('hidden');
+    newFolderInput.focus();
+});
+
+// Close Create Folder Modal
+btnCancelFolder.addEventListener('click', () => {
+    createFolderModal.classList.add('hidden');
+});
+
+// Submit Create Folder
+async function submitNewFolder() {
+    const name = newFolderInput.value.trim();
+    if (!name) return;
 
     try {
         const res = await fetch('/api/library/folder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim() })
+            body: JSON.stringify({ name })
         });
         if (!res.ok) {
             const errData = await res.json();
             throw new Error(errData.error || 'Failed to create folder');
         }
+        createFolderModal.classList.add('hidden');
         loadLibrary();
     } catch (err) {
         alert(err.message);
+    }
+}
+
+btnSubmitFolder.addEventListener('click', submitNewFolder);
+newFolderInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        submitNewFolder();
     }
 });
 

@@ -524,13 +524,13 @@ canvas {
     border-color: #ff3333;
 }
 
-/* Footer & Controls Block */
 .controls-section {
     border-top: 2px dashed #333;
     padding-top: 16px;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
+    gap: 12px;
     flex-shrink: 0;
 }
 

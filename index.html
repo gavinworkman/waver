@@ -95,6 +95,20 @@
         </div>
     </div>
 
+    <!-- Modal Dialog: Create Folder -->
+    <div id="create-folder-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <div class="modal-title">&gt; CREATE NEW PLAYLIST:</div>
+            <div class="modal-list" style="border:none; padding:12px 0 0 0;">
+                <input type="text" id="new-folder-input" class="search-input" placeholder="ENTER NAME..." style="width: 100%; box-sizing: border-box;" autocomplete="off" />
+            </div>
+            <div class="modal-actions" style="justify-content: flex-end; gap: 8px; margin-top: 12px;">
+                <button id="btn-cancel-folder" class="action-btn" style="border-color:#555;">CANCEL</button>
+                <button id="btn-submit-folder" class="action-btn">CREATE</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>
