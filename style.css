@@ -6,35 +6,178 @@
 }
 
 body {
-    background-color: #111; /* Very dark grey/black */
-    color: #fff; /* Stark white text */
+    background-color: #0c0c0c; /* CRT dark background */
+    color: #ffffff; /* Stark white text */
     font-family: 'VT323', monospace;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh; /* Fill the screen */
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
 }
 
+/* CRT Screen Scanlines overlay */
+body::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%), 
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+    background-size: 100% 3px, 6px 100%;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0.85;
+}
+
+/* Main terminal player outer shell */
 .player-container {
     width: 100%;
-    max-width: 400px; /* Mobile width like an iPhone */
-    padding: 20px;
+    max-width: 420px;
+    height: 100vh;
+    max-height: 800px;
+    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 30px;
+    border: 3px double #444; /* Retro terminal double outline */
+    background-color: #050505;
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    position: relative;
 }
 
-/* Typography matching your mockup */
-.info-section h1 { font-size: 2.5rem; margin-bottom: 10px; }
-.info-section h2 { font-size: 2rem; color: #ccc; margin-bottom: 5px; }
-.info-section h3 { font-size: 1.8rem; color: #aaa; }
+/* Handle mobile devices like iPhone inside tailnet */
+@media (max-width: 480px) {
+    .player-container {
+        max-height: 100%;
+        border: none;
+        border-radius: 0;
+        padding: 16px;
+    }
+    body::after {
+        background-size: 100% 2px, 4px 100%; /* Adjust scanlines on smaller screens */
+    }
+}
 
-/* The Canvas Wrapper */
+/* Terminal Header */
+.terminal-header {
+    border-bottom: 2px dashed #333;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.terminal-title {
+    font-size: 1.3rem;
+    color: #666;
+    text-align: center;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* Tab Navigation */
+.nav-tabs {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.nav-tab {
+    flex: 1;
+    background: none;
+    border: 1px solid #333;
+    color: #888;
+    font-family: 'VT323', monospace;
+    font-size: 1.4rem;
+    padding: 4px 0;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+    outline: none;
+}
+
+.nav-tab:hover {
+    border-color: #888;
+    color: #fff;
+}
+
+.nav-tab.active {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+    font-weight: bold;
+}
+
+/* Main Display Screen */
+.main-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    margin-bottom: 18px;
+}
+
+/* View panels */
+.view-pane {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.view-pane.active {
+    display: flex;
+}
+
+/* View: Now Playing */
+.info-section {
+    flex-shrink: 0;
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.info-section h1 {
+    font-size: 2.3rem;
+    margin-bottom: 4px;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 0 5px rgba(255, 255, 255, 0.4);
+}
+
+.info-section h2 {
+    font-size: 1.8rem;
+    color: #b0b0b0;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.info-section h3 {
+    font-size: 1.4rem;
+    color: #777;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .visualizer-section {
     width: 100%;
-    height: 150px;
     background-color: #000;
-    border: 2px solid #333; /* Slight border to define the screen */
+    border: 2px solid #222;
+    margin-bottom: 16px;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 2px;
 }
 
 canvas {
@@ -43,35 +186,468 @@ canvas {
     display: block;
 }
 
-/* Controls block */
-.controls-section {
+/* Retro Progress Timeline */
+.progress-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 1.4rem;
+    color: #777;
+    flex-shrink: 0;
+}
+
+.progress-bar-container {
+    flex: 1;
+    height: 12px;
+    background-color: #000;
+    border: 1px solid #333;
+    position: relative;
+    cursor: pointer;
+    border-radius: 1px;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #ffffff;
+    width: 0%;
+    position: relative;
+}
+
+/* View: Search */
+.search-section {
+    flex-shrink: 0;
+    margin-bottom: 8px;
+}
+
+#search-form {
+    display: flex;
+    align-items: center;
+    border: 1px solid #333;
+    padding: 6px 12px;
+    background-color: #000;
+}
+
+.prompt {
+    font-size: 1.4rem;
+    color: #ffffff;
+    margin-right: 8px;
+    user-select: none;
+}
+
+#search-input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-family: 'VT323', monospace;
+    font-size: 1.5rem;
+    outline: none;
+}
+
+.status-line {
+    font-size: 1.2rem;
+    color: #888;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px dashed #222;
+    padding-bottom: 4px;
+    flex-shrink: 0;
+}
+
+/* Scroll Area for terminal lists */
+.scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #222;
+    background-color: #020202;
+    padding: 8px;
+}
+
+/* Custom terminal-style scrollbar */
+.scroll-area::-webkit-scrollbar {
+    width: 8px;
+}
+.scroll-area::-webkit-scrollbar-track {
+    background: #050505;
+    border-left: 1px solid #1a1a1a;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border: 1px solid #000;
+}
+.scroll-area::-webkit-scrollbar-thumb:hover {
+    background: #444;
+}
+
+.placeholder-text {
+    text-align: center;
+    color: #444;
+    font-size: 1.4rem;
+    padding: 60px 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Search Results and list rows */
+.list-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 8px;
+    border-bottom: 1px dashed #222;
+    cursor: pointer;
+    font-size: 1.3rem;
+    transition: background 0.1s ease;
+}
+
+.list-item:hover {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.list-item-main {
+    flex: 1;
+    overflow: hidden;
+    margin-right: 12px;
+}
+
+.list-item-title {
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.list-item-artist {
+    font-size: 1.1rem;
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.list-item-meta {
+    flex-shrink: 0;
+    font-size: 1.2rem;
+    text-align: right;
+}
+
+/* View: Library */
+.library-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.lib-path {
+    font-size: 1.4rem;
+    color: #888;
+    letter-spacing: 1px;
+}
+
+.action-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #ffffff;
+    font-family: 'VT323', monospace;
+    font-size: 1.2rem;
+    padding: 2px 8px;
+    cursor: pointer;
+    outline: none;
+}
+
+.action-btn:hover {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+}
+
+/* File browser structure */
+.folder-section {
+    margin-bottom: 8px;
+}
+
+.folder-row {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    background-color: #0f0f0f;
+    border: 1px solid #222;
+    cursor: pointer;
+    font-size: 1.4rem;
+    transition: background-color 0.1s ease;
+}
+
+.folder-row:hover {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.folder-row:hover .mini-btn {
+    border-color: #000;
+    color: #000;
+}
+
+.folder-icon {
+    margin-right: 10px;
+    user-select: none;
+}
+
+.folder-name {
+    flex: 1;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.folder-count {
+    font-size: 1.1rem;
+    opacity: 0.6;
+    margin-right: 8px;
+}
+
+.folder-actions {
+    display: flex;
+    gap: 8px;
+    opacity: 0.7;
+}
+
+.folder-actions:hover {
+    opacity: 1;
+}
+
+.mini-btn {
+    background: none;
+    border: 1px solid #444;
+    color: inherit;
+    font-family: 'VT323', monospace;
+    font-size: 1rem;
+    padding: 0 4px;
+    cursor: pointer;
+}
+
+.mini-btn:hover {
+    background-color: #ff3333 !important;
+    color: #ffffff !important;
+    border-color: #ff3333 !important;
+}
+
+.folder-contents {
+    padding-left: 16px;
+    border-left: 1px dashed #333;
+    margin-top: 2px;
+    margin-bottom: 8px;
+    display: none; /* Toggled by JS */
+}
+
+.folder-contents.open {
+    display: block;
+}
+
+/* File Song Row */
+.song-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    font-size: 1.3rem;
+    border-bottom: 1px solid #111;
+}
+
+.song-row:hover {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+.song-row.active {
+    border: 1px solid #444;
+    background-color: #121212;
+    color: #ffffff;
+}
+
+.song-row-main {
+    flex: 1;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.song-icon {
+    opacity: 0.6;
+}
+
+.song-row-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0; /* Only visible on hover or mobile touch state */
+    transition: opacity 0.15s ease;
+}
+
+.song-row:hover .song-row-actions {
+    opacity: 1;
+}
+
+/* Make actions always visible on narrow viewports/touch devices */
+@media (max-width: 480px) {
+    .song-row-actions {
+        opacity: 0.8;
+    }
+}
+
+.song-action-btn {
+    background: none;
+    border: 1px solid #444;
+    color: inherit;
+    font-family: 'VT323', monospace;
+    font-size: 1rem;
+    padding: 0 5px;
+    cursor: pointer;
+}
+
+.song-action-btn:hover {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+}
+
+.song-action-btn.del:hover {
+    background-color: #ff3333;
+    color: #ffffff;
+    border-color: #ff3333;
+}
+
+/* Footer & Controls Block */
+.controls-section {
+    border-top: 2px dashed #333;
+    padding-top: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
 }
 
 .control-btn {
-    background: none;
-    border: none;
-    color: #fff;
-    font-size: 2.5rem;
+    background-color: #111;
+    border: 2px solid #555;
+    color: #ffffff;
+    font-size: 1.5rem;
     cursor: pointer;
     font-family: 'VT323', monospace;
+    padding: 6px 12px;
+    border-radius: 3px;
+    box-shadow: 0 4px 0 #222;
+    transition: none;
+    user-select: none;
+    outline: none;
+    text-transform: uppercase;
 }
 
 .control-btn:hover {
-    color: #888; /* Dim slightly when tapped/hovered */
-}
-
-.small {
-    background: none;
-    border: none;
+    border-color: #888;
     color: #fff;
-    font-size: 4rem;
-    cursor: pointer;
-    font-family: 'VT323', monospace;
+    background-color: #181818;
 }
 
-.small:hover {
-    color: #888; /* Dim slightly when tapped/hovered */
+.control-btn:active {
+    box-shadow: none;
+    transform: translateY(4px);
+    background-color: #050505;
+}
+
+.control-btn.active-mode {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+    box-shadow: 0 4px 0 #888;
+}
+
+.control-btn.active-mode:active {
+    box-shadow: none;
+    transform: translateY(4px);
+}
+
+/* Modal Dialog Overlay */
+.modal-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    padding: 20px;
+    backdrop-filter: blur(3px);
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-box {
+    width: 100%;
+    max-width: 320px;
+    border: 2px solid #ffffff;
+    background-color: #050505;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.15);
+}
+
+.modal-title {
+    font-size: 1.4rem;
+    font-weight: bold;
+    border-bottom: 1px dashed #333;
+    padding-bottom: 8px;
+    letter-spacing: 1px;
+}
+
+.modal-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modal-item {
+    padding: 8px;
+    border: 1px solid #333;
+    cursor: pointer;
+    font-size: 1.3rem;
+    text-align: center;
+    transition: background 0.1s ease;
+}
+
+.modal-item:hover {
+    background-color: #ffffff;
+    color: #000000;
+    border-color: #ffffff;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Utilities */
+.blink {
+    animation: blinker 1.2s steps(2, start) infinite;
+}
+
+@keyframes blinker {
+    to { opacity: 0; }
+}
+
+.text-glow {
+    text-shadow: 0 0 5px rgba(255, 255, 255, 0.6);
 }

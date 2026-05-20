@@ -1,0 +1,13 @@
+{
+  "name": "waver",
+  "version": "1.0.0",
+  "description": "Retro Terminal Player",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

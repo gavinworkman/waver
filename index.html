@@ -10,25 +10,89 @@
 <body>
 
     <div class="player-container">
-        <div class="info-section">
-            <h1 id="track-name">Track_Name</h1>
-            <h2 id="artist-name">Artist</h2>
-            <h3 id="album-name">Album</h3>
+        <!-- Terminal Header & Navigation -->
+        <div class="terminal-header">
+            <div class="terminal-title">WAVER TERMINAL v1.1</div>
+            <div class="nav-tabs">
+                <button id="tab-playing" class="nav-tab active">PLAYING</button>
+                <button id="tab-search" class="nav-tab">SEARCH</button>
+                <button id="tab-library" class="nav-tab">LIBRARY</button>
+            </div>
         </div>
 
-        <div class="visualizer-section">
-            <canvas id="waveform-canvas"></canvas>
+        <!-- Main Screen Content Area -->
+        <div class="main-screen">
+            
+            <!-- View: Now Playing -->
+            <div id="view-playing" class="view-pane active">
+                <div class="info-section">
+                    <h1 id="track-name">NO TRACK</h1>
+                    <h2 id="artist-name">CHOOSE A SONG</h2>
+                    <h3 id="album-name">FROM LIBRARY / SEARCH</h3>
+                </div>
+
+                <div class="visualizer-section">
+                    <canvas id="waveform-canvas"></canvas>
+                </div>
+
+                <div class="progress-section">
+                    <span id="time-current">00:00</span>
+                    <div id="progress-bar-container" class="progress-bar-container">
+                        <div id="progress-bar" class="progress-bar"></div>
+                    </div>
+                    <span id="time-duration">00:00</span>
+                </div>
+            </div>
+
+            <!-- View: Search -->
+            <div id="view-search" class="view-pane">
+                <div class="search-section">
+                    <form id="search-form">
+                        <span class="prompt">&gt; SEARCH:</span>
+                        <input type="text" id="search-input" placeholder="TYPE & ENTER..." autocomplete="off" />
+                    </form>
+                </div>
+                <div id="search-status" class="status-line">READY</div>
+                <div id="search-results" class="scroll-area">
+                    <div class="placeholder-text">ENTER SEARCH TERM ABOVE</div>
+                </div>
+            </div>
+
+            <!-- View: Library -->
+            <div id="view-library" class="view-pane">
+                <div class="library-header">
+                    <div class="lib-path">/music</div>
+                    <button id="btn-create-folder" class="action-btn">+ NEW FOLDER</button>
+                </div>
+                <div id="library-content" class="scroll-area">
+                    <!-- Dynamic file tree browser populated here -->
+                    <div class="placeholder-text">LOADING LIBRARY...</div>
+                </div>
+            </div>
+
         </div>
 
+        <!-- Terminal Footer & Controls -->
         <div class="controls-section">
-            <button id="btn-shuffle" class="control-btn">~</v></button>
-            <button id="btn-prev" class="control-btn">⏮</button>
-            <button id="btn-play" class="control-btn">▶</button>
-            <button id="btn-next" class="control-btn">⏭</button>
-            <button id="btn-add" class="control-btn">+</button>
+            <button id="btn-shuffle" class="control-btn">[SHUF]</button>
+            <button id="btn-prev" class="control-btn">[REW]</button>
+            <button id="btn-play" class="control-btn">[PLAY]</button>
+            <button id="btn-next" class="control-btn">[FF]</button>
+            <button id="btn-add" class="control-btn" title="Add current track to a playlist">[ADD]</button>
         </div>
-        
-        <audio id="audio-player" src="Horse.flac" crossorigin="anonymous"></audio>
+    </div>
+
+    <!-- Modal Dialog: Move / Add current track to playlist -->
+    <div id="folder-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <div class="modal-title">&gt; ADD PLAYING SONG TO:</div>
+            <div id="modal-folder-list" class="modal-list">
+                <!-- Populated dynamically with folders -->
+            </div>
+            <div class="modal-actions">
+                <button id="btn-close-modal" class="action-btn">CANCEL</button>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>
