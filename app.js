@@ -50,13 +50,16 @@ const newFolderInput = document.getElementById('new-folder-input');
 const btnCancelFolder = document.getElementById('btn-cancel-folder');
 const btnSubmitFolder = document.getElementById('btn-submit-folder');
 
-// Application State (Synced from Server)
-let isPlaying = false;
-let isPaused = false;
+// ==========================================
+// CLIENT-SIDE AUDIO PLAYBACK ENGINE
+// ==========================================
+const audio = new Audio();
+audio.preload = 'metadata';
+
 let currentTrack = null;
-let currentTime = 0;
-let duration = 0;
 let isShuffle = false;
+let queue = [];
+let queueIndex = -1;
 
 let cachedLibraryData = null;
 let songToMove = null;
@@ -104,7 +107,9 @@ resizeCanvas();
 
 // Simulated Web Audio Visualizer
 function drawWaveform() {
-    if (!isPlaying || isPaused) {
+    const isPlaying = !audio.paused && !audio.ended && audio.readyState > 2;
+
+    if (!isPlaying) {
         // Draw flat center line
         ctx.fillStyle = '#050505';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -150,84 +155,149 @@ function formatTime(seconds) {
     return `${m}:${s}`;
 }
 
+// ==========================================
+// AUDIO EVENT HANDLERS (Client-Side Playback)
+// ==========================================
+
+// Update progress bar and time display continuously
+audio.addEventListener('timeupdate', () => {
+    if (!currentTrack) return;
+    const cur = audio.currentTime;
+    const dur = audio.duration || 0;
+
+    timeCurrent.innerText = formatTime(cur);
+    timeDuration.innerText = formatTime(dur);
+
+    const percent = dur > 0 ? (cur / dur) * 100 : 0;
+    progressBar.style.width = `${percent}%`;
+});
+
+// When metadata loads, update duration display
+audio.addEventListener('loadedmetadata', () => {
+    timeDuration.innerText = formatTime(audio.duration);
+});
+
+// When track ends, auto-advance to next
+audio.addEventListener('ended', () => {
+    console.log('[Player] Track ended, advancing to next');
+    nextTrack();
+});
+
+// When playback starts
+audio.addEventListener('play', () => {
+    playBtn.innerText = '[PAUS]';
+    if (!animationFrameId) {
+        drawWaveform();
+    }
+});
+
+// When playback pauses
+audio.addEventListener('pause', () => {
+    playBtn.innerText = '[PLAY]';
+});
+
+// Handle playback errors
+audio.addEventListener('error', () => {
+    console.error('[Player] Audio playback error:', audio.error);
+    trackName.innerText = 'PLAYBACK ERROR';
+    artistName.innerText = 'FILE MAY BE MISSING';
+    albumName.innerText = 'CHECK LIBRARY';
+});
+
 // Playback Scrubbing Interaction
-progressBarContainer.addEventListener('click', async (e) => {
-    if (duration <= 0) return;
+progressBarContainer.addEventListener('click', (e) => {
+    if (!audio.duration) return;
     const rect = progressBarContainer.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const width = rect.width;
     const percentage = clickX / width;
-    const targetTime = percentage * duration;
-
-    try {
-        await fetch('/api/player/seek', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ time: targetTime })
-        });
-        syncPlayerState(); // Immediate update
-    } catch (err) {
-        console.error(err);
-    }
+    audio.currentTime = percentage * audio.duration;
 });
 
-// Control API Helpers
-async function playTrack(track, queue, index) {
-    try {
-        const res = await fetch('/api/player/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ track, queue, index })
-        });
-        if (!res.ok) throw new Error('Play failed');
-        syncPlayerState();
-    } catch (err) {
-        console.error(err);
+// ==========================================
+// PLAYBACK CONTROLS (All Client-Side)
+// ==========================================
+
+function playTrack(track, newQueue, index) {
+    currentTrack = track;
+    if (newQueue && newQueue.length > 0) {
+        queue = newQueue;
+        queueIndex = index >= 0 ? index : 0;
     }
+
+    // Update UI immediately
+    trackName.innerText = (track.title || 'UNKNOWN').toUpperCase();
+    artistName.innerText = (track.artist || 'UNKNOWN ARTIST').toUpperCase();
+
+    let albumStr = 'LIBRARY ROOT';
+    if (track.path) {
+        const parts = track.path.split('/');
+        if (parts.length > 3) {
+            albumStr = `PLAYLIST: ${decodeURIComponent(parts[2]).toUpperCase()}`;
+        } else if (track.isSearch) {
+            albumStr = 'DOWNLOADED (SEARCH)';
+        }
+    }
+    albumName.innerText = albumStr;
+
+    // Set audio source and play
+    audio.src = track.path;
+    audio.play().catch(err => {
+        console.error('[Player] Play failed:', err);
+    });
+
+    switchView('playing');
+    updateActiveRows();
 }
 
-async function togglePlay() {
+function togglePlay() {
     if (!currentTrack) {
         playFirstInLibrary();
         return;
     }
 
-    try {
-        await fetch('/api/player/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        syncPlayerState();
-    } catch (err) {
-        console.error(err);
+    if (audio.paused) {
+        audio.play().catch(err => console.error('[Player] Resume failed:', err));
+    } else {
+        audio.pause();
     }
 }
 
-async function nextTrack() {
-    try {
-        await fetch('/api/player/next', { method: 'POST' });
-        syncPlayerState();
-    } catch (err) {
-        console.error(err);
+function nextTrack() {
+    if (queue.length === 0) return;
+    let index;
+    if (isShuffle) {
+        index = Math.floor(Math.random() * queue.length);
+    } else {
+        index = (queueIndex + 1) % queue.length;
     }
+    playTrack(queue[index], queue, index);
 }
 
-async function prevTrack() {
-    try {
-        await fetch('/api/player/prev', { method: 'POST' });
-        syncPlayerState();
-    } catch (err) {
-        console.error(err);
+function prevTrack() {
+    if (queue.length === 0) return;
+
+    // If more than 3 seconds in, restart current track
+    if (audio.currentTime > 3) {
+        audio.currentTime = 0;
+        return;
     }
+
+    let index;
+    if (isShuffle) {
+        index = Math.floor(Math.random() * queue.length);
+    } else {
+        index = (queueIndex - 1 + queue.length) % queue.length;
+    }
+    playTrack(queue[index], queue, index);
 }
 
-async function toggleShuffle() {
-    try {
-        await fetch('/api/player/shuffle', { method: 'POST' });
-        syncPlayerState();
-    } catch (err) {
-        console.error(err);
+function toggleShuffle() {
+    isShuffle = !isShuffle;
+    if (isShuffle) {
+        shuffleBtn.classList.add('active-mode');
+    } else {
+        shuffleBtn.classList.remove('active-mode');
     }
 }
 
@@ -236,6 +306,16 @@ playBtn.addEventListener('click', togglePlay);
 nextBtn.addEventListener('click', nextTrack);
 prevBtn.addEventListener('click', prevTrack);
 shuffleBtn.addEventListener('click', toggleShuffle);
+
+// Highlight currently active song row in library
+function updateActiveRows() {
+    document.querySelectorAll('.song-row').forEach(row => {
+        row.classList.remove('active');
+        if (currentTrack && row.getAttribute('data-path') === currentTrack.path) {
+            row.classList.add('active');
+        }
+    });
+}
 
 // Play First Song in Library Fallback
 async function playFirstInLibrary() {
@@ -256,89 +336,6 @@ async function playFirstInLibrary() {
     }
 }
 
-// Player Status Sync Engine (1s Polling)
-async function syncPlayerState() {
-    try {
-        const res = await fetch('/api/player/status');
-        if (!res.ok) return;
-        const data = await res.json();
-
-        // Save states
-        const oldPlaying = isPlaying;
-        const oldPaused = isPaused;
-
-        isPlaying = data.isPlaying;
-        isPaused = data.isPaused;
-        currentTrack = data.currentTrack;
-        currentTime = data.currentTime;
-        duration = data.duration;
-        isShuffle = data.isShuffle;
-
-        // 1. Update Playback Button text
-        if (isPlaying && !isPaused) {
-            playBtn.innerText = '[PAUS]';
-            // Start canvas loop if not already running
-            if (!animationFrameId) {
-                drawWaveform();
-            }
-        } else {
-            playBtn.innerText = '[PLAY]';
-        }
-
-        // 2. Shuffle Styling
-        if (isShuffle) {
-            shuffleBtn.classList.add('active-mode');
-        } else {
-            shuffleBtn.classList.remove('active-mode');
-        }
-
-        // 3. Metadata and Info Panels
-        if (currentTrack) {
-            trackName.innerText = currentTrack.title.toUpperCase();
-            artistName.innerText = (currentTrack.artist || 'UNKNOWN ARTIST').toUpperCase();
-
-            let albumStr = 'LIBRARY ROOT';
-            const parts = currentTrack.path.split('/');
-            if (parts.length > 3) {
-                albumStr = `PLAYLIST: ${decodeURIComponent(parts[2]).toUpperCase()}`;
-            } else if (currentTrack.isSearch) {
-                albumStr = 'STREAM (SEARCH)';
-            }
-            albumName.innerText = albumStr;
-
-            // Update time stamps
-            timeCurrent.innerText = formatTime(currentTime);
-            timeDuration.innerText = formatTime(duration);
-
-            // Progress bar size
-            const percent = duration > 0 ? (currentTime / duration) * 100 : 0;
-            progressBar.style.width = `${percent}%`;
-        } else {
-            trackName.innerText = 'NO TRACK PLAYING';
-            artistName.innerText = 'CHOOSE A SONG';
-            albumName.innerText = 'FROM LIBRARY OR SEARCH';
-            timeCurrent.innerText = '00:00';
-            timeDuration.innerText = '00:00';
-            progressBar.style.width = '0%';
-        }
-
-        // 4. Style active list rows in Library
-        document.querySelectorAll('.song-row').forEach(row => {
-            row.classList.remove('active');
-            if (currentTrack && row.getAttribute('data-path') === currentTrack.path) {
-                row.classList.add('active');
-            }
-        });
-
-    } catch (err) {
-        console.error('Error syncing status:', err);
-    }
-}
-
-// Start polling
-setInterval(syncPlayerState, 1000);
-syncPlayerState();
-
 // SEARCH VIEW LOGIC
 searchForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -351,7 +348,10 @@ searchForm.addEventListener('submit', async (e) => {
 
     try {
         const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        if (!response.ok) throw new Error('Search failed');
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Search failed');
+        }
         const tracks = await response.json();
 
         searchStatus.classList.remove('blink');
@@ -387,7 +387,7 @@ searchForm.addEventListener('submit', async (e) => {
         console.error(err);
         searchStatus.classList.remove('blink');
         searchStatus.innerText = 'SEARCH ERROR';
-        searchResults.innerHTML = '<div class="placeholder-text">SEARCH FAILED. TRY AGAIN.</div>';
+        searchResults.innerHTML = `<div class="placeholder-text">${err.message || 'SEARCH FAILED. TRY AGAIN.'}</div>`;
     }
 });
 
@@ -413,7 +413,10 @@ async function downloadAndPlay(track) {
             })
         });
 
-        if (!res.ok) throw new Error('Download failed');
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || 'Download failed');
+        }
         const data = await res.json();
 
         searchStatus.classList.remove('blink');
@@ -430,8 +433,7 @@ async function downloadAndPlay(track) {
             isSearch: true
         };
 
-        // Command server to play, setting the active single queue
-        switchView('playing');
+        // Play directly in browser
         playTrack(playableTrack, [playableTrack], 0);
 
     } catch (err) {
@@ -439,7 +441,7 @@ async function downloadAndPlay(track) {
         searchStatus.classList.remove('blink');
         searchStatus.innerText = 'DOWNLOAD ERROR';
         loaderOverlay.remove();
-        alert('Could not download track. Check connections.');
+        alert(err.message || 'Could not download track. Check connections.');
     }
 }
 
@@ -518,7 +520,6 @@ function renderLibrary(data) {
             `;
 
             songRow.querySelector('.song-row-main').addEventListener('click', () => {
-                switchView('playing');
                 playTrack(song, folder.songs, sIdx);
             });
 
@@ -568,7 +569,6 @@ function renderLibrary(data) {
             `;
 
             songRow.querySelector('.song-row-main').addEventListener('click', () => {
-                switchView('playing');
                 playTrack(song, data.songs, sIdx);
             });
 
@@ -626,6 +626,7 @@ async function submitNewFolder() {
 btnSubmitFolder.addEventListener('click', submitNewFolder);
 newFolderInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+        e.preventDefault();
         submitNewFolder();
     }
 });
@@ -654,6 +655,20 @@ async function deleteSong(songPath) {
             body: JSON.stringify({ path: songPath })
         });
         if (!res.ok) throw new Error('Deletion failed');
+
+        // If deleted song is currently playing, stop
+        if (currentTrack && currentTrack.path === songPath) {
+            audio.pause();
+            audio.src = '';
+            currentTrack = null;
+            trackName.innerText = 'NO TRACK PLAYING';
+            artistName.innerText = 'CHOOSE A SONG';
+            albumName.innerText = 'FROM LIBRARY OR SEARCH';
+            timeCurrent.innerText = '00:00';
+            timeDuration.innerText = '00:00';
+            progressBar.style.width = '0%';
+        }
+
         loadLibrary();
     } catch (err) {
         alert('Could not delete song file');
@@ -707,10 +722,16 @@ async function moveSongTo(folderName) {
         });
 
         if (!res.ok) throw new Error('Move failed');
+
+        // Update the current track path if we moved the playing song
+        if (currentTrack && currentTrack.path === songToMove.path) {
+            const filename = songToMove.path.split('/').pop();
+            currentTrack.path = folderName ? `/music/${folderName}/${filename}` : `/music/${filename}`;
+        }
+
         modalOverlay.classList.add('hidden');
         songToMove = null;
         loadLibrary();
-        syncPlayerState();
     } catch (err) {
         alert('Could not move song');
     }
@@ -728,17 +749,12 @@ addBtn.addEventListener('click', () => {
         alert('No track playing. Load a song first!');
         return;
     }
-    fetch('/api/library')
-        .then(res => res.json())
-        .then(data => {
-            cachedLibraryData = data;
-            openMoveModal(currentTrack);
-        })
-        .catch(() => {
-            openMoveModal(currentTrack);
-        });
+    openMoveModal(currentTrack);
 });
 
 // Initialize view
 switchView('playing');
 loadLibrary();
+
+// Draw initial flat waveform
+drawWaveform();
