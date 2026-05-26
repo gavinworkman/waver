@@ -193,7 +193,11 @@ async function togglePlay() {
     }
 
     try {
-        await fetch('/api/player/play', { method: 'POST' });
+        await fetch('/api/player/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
         syncPlayerState();
     } catch (err) {
         console.error(err);
@@ -657,9 +661,18 @@ async function deleteSong(songPath) {
 }
 
 // Move Modal Logic
-function openMoveModal(song) {
+async function openMoveModal(song) {
     songToMove = song;
     modalFolderList.innerHTML = '';
+
+    // Always fetch fresh folder list
+    try {
+        const res = await fetch('/api/library');
+        const data = await res.json();
+        cachedLibraryData = data;
+    } catch (e) {
+        console.error('Failed to fetch library for move modal:', e);
+    }
 
     const rootOption = document.createElement('div');
     rootOption.className = 'modal-item';

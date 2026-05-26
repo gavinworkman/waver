@@ -394,16 +394,30 @@ app.get('/api/search', async (req, res) => {
         const child = spawn(YT_DLP_PATH, [
             `ytsearch5:${query}`,
             '--dump-json',
-            '--flat-playlist'
+            '--no-download',
+            '--no-playlist'
         ]);
 
         let stdout = '';
         let stderr = '';
 
+        let responded = false;
+
+        child.on('error', (err) => {
+            console.error('[Search] Failed to spawn yt-dlp:', err.message);
+            if (!responded) {
+                responded = true;
+                res.status(500).json({ error: 'yt-dlp is not installed. Install it with: pip install yt-dlp' });
+            }
+        });
+
         child.stdout.on('data', (data) => { stdout += data; });
         child.stderr.on('data', (data) => { stderr += data; });
 
         child.on('close', (code) => {
+            if (responded) return;
+            responded = true;
+
             if (code !== 0) {
                 console.error(`yt-dlp search failed with code ${code}:`, stderr);
                 return res.status(500).json({ error: 'Search command failed' });
@@ -473,9 +487,21 @@ app.post('/api/download', async (req, res) => {
         ]);
 
         let stderr = '';
+        let responded = false;
+
+        child.on('error', (err) => {
+            console.error('[Download] Failed to spawn yt-dlp:', err.message);
+            if (!responded) {
+                responded = true;
+                res.status(500).json({ error: 'yt-dlp is not installed. Install it with: pip install yt-dlp' });
+            }
+        });
+
         child.stderr.on('data', (data) => { stderr += data; });
         
         child.on('close', (code) => {
+            if (responded) return;
+            responded = true;
             if (code !== 0) {
                 console.error(`yt-dlp download failed with code ${code}:`, stderr);
                 return res.status(500).json({ error: 'Download failed' });
@@ -525,9 +551,13 @@ app.get('/api/library', (req, res) => {
                     .map(sub => {
                         const idMatch = sub.name.match(/_\[([^\]]+)\]\.(mp3|flac)$/);
                         const id = idMatch ? idMatch[1] : null;
-                        const displayTitle = sub.name
+                        let displayTitle = sub.name
                             .replace(/_\[([^\]]+)\]\.(mp3|flac)$/, '')
                             .replace(/_/g, ' ');
+                        // Fallback: strip extension if no yt-dlp pattern matched
+                        if (!idMatch) {
+                            displayTitle = sub.name.replace(/\.(mp3|flac)$/i, '').replace(/_/g, ' ');
+                        }
                         return {
                             id,
                             title: displayTitle,
@@ -543,9 +573,13 @@ app.get('/api/library', (req, res) => {
             } else if (item.isFile() && (item.name.endsWith('.mp3') || item.name.endsWith('.flac'))) {
                 const idMatch = item.name.match(/_\[([^\]]+)\]\.(mp3|flac)$/);
                 const id = idMatch ? idMatch[1] : null;
-                const displayTitle = item.name
+                let displayTitle = item.name
                     .replace(/_\[([^\]]+)\]\.(mp3|flac)$/, '')
                     .replace(/_/g, ' ');
+                // Fallback: strip extension if no yt-dlp pattern matched
+                if (!idMatch) {
+                    displayTitle = item.name.replace(/\.(mp3|flac)$/i, '').replace(/_/g, ' ');
+                }
                 rootSongs.push({
                     id,
                     title: displayTitle,
