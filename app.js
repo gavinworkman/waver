@@ -55,6 +55,25 @@ const btnSubmitFolder = document.getElementById('btn-submit-folder');
 // ==========================================
 const audio = new Audio();
 audio.preload = 'metadata';
+audio.crossOrigin = 'anonymous';
+
+// Web Audio API for real visualizer
+let audioContext = null;
+let analyser = null;
+let audioSource = null;
+let frequencyData = null;
+
+function initAudioContext() {
+    if (audioContext) return;
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0.75;
+    audioSource = audioContext.createMediaElementSource(audio);
+    audioSource.connect(analyser);
+    analyser.connect(audioContext.destination);
+    frequencyData = new Uint8Array(analyser.frequencyBinCount);
+}
 
 let currentTrack = null;
 let isShuffle = false;
@@ -64,7 +83,6 @@ let queueIndex = -1;
 let cachedLibraryData = null;
 let songToMove = null;
 let animationFrameId = null;
-let simulatedHeights = [];
 
 // Navigation Router (SPA)
 function switchView(viewName) {
@@ -105,7 +123,7 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// Simulated Web Audio Visualizer
+// Real-time Audio Visualizer (Web Audio API)
 function drawWaveform() {
     const isPlaying = !audio.paused && !audio.ended && audio.readyState > 2;
 
@@ -124,27 +142,25 @@ function drawWaveform() {
     ctx.fillStyle = '#050505';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const numBars = 36;
-    const barWidth = canvas.width / numBars;
-    
-    if (simulatedHeights.length !== numBars) {
-        simulatedHeights = Array(numBars).fill(0);
-    }
+    // Read real frequency data if analyser is ready
+    if (analyser && frequencyData) {
+        analyser.getByteFrequencyData(frequencyData);
+        const numBars = frequencyData.length; // 64 bars from fftSize=128
+        const barWidth = canvas.width / numBars;
 
-    for (let i = 0; i < numBars; i++) {
-        // Calculate a target using random noise
-        const target = Math.random() * canvas.height * 0.75;
-        // Interpolate for smooth transitions
-        simulatedHeights[i] = (simulatedHeights[i] * 0.7) + (target * 0.3);
+        for (let i = 0; i < numBars; i++) {
+            // frequencyData[i] is 0-255, normalize to canvas height
+            const barHeight = (frequencyData[i] / 255) * canvas.height * 0.9;
 
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = '#ffffff';
-        ctx.shadowBlur = 4;
-        
-        const y = (canvas.height / 2) - (simulatedHeights[i] / 2);
-        ctx.fillRect(i * barWidth, y, barWidth - 2, simulatedHeights[i]);
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 4;
+
+            const y = (canvas.height / 2) - (barHeight / 2);
+            ctx.fillRect(i * barWidth, y, barWidth - 1, barHeight);
+        }
+        ctx.shadowBlur = 0;
     }
-    ctx.shadowBlur = 0;
 }
 
 // Format seconds into MM:SS
@@ -219,6 +235,12 @@ progressBarContainer.addEventListener('click', (e) => {
 // ==========================================
 
 function playTrack(track, newQueue, index) {
+    // Initialize Web Audio API on first user interaction
+    initAudioContext();
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+
     currentTrack = track;
     if (newQueue && newQueue.length > 0) {
         queue = newQueue;

@@ -434,7 +434,7 @@ app.get('/api/search', async (req, res) => {
                         artist: data.uploader || data.channel || 'Unknown Artist',
                         duration: data.duration || 0,
                         duration_string: data.duration_string || '0:00',
-                        url: data.url || `https://www.youtube.com/watch?v=${data.id}`
+                        url: data.webpage_url || `https://www.youtube.com/watch?v=${data.id}`
                     };
                 } catch (e) {
                     return null;
@@ -480,11 +480,13 @@ app.post('/api/download', async (req, res) => {
             '-x',
             '--audio-format', 'mp3',
             '--audio-quality', '0',
-            '--postprocessor-args', 'ExtractAudio:-ac 2', // Downmix to stereo
             '--restrict-filenames',
             '-o', targetTemplate,
             url
         ]);
+
+        let stdout = '';
+        child.stdout.on('data', (data) => { stdout += data; console.log(`[Download] ${data}`); });
 
         let stderr = '';
         let responded = false;
