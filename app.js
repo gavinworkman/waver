@@ -207,6 +207,14 @@ audio.addEventListener('play', () => {
     }
 });
 
+// When enough data is buffered to play, start waveform if audio is playing.
+// This catches the case where the 'play' event fires before readyState >= 3.
+audio.addEventListener('canplay', () => {
+    if (!audio.paused && !animationFrameId && analyser && frequencyData) {
+        drawWaveform();
+    }
+});
+
 // When playback pauses
 audio.addEventListener('pause', () => {
     playBtn.innerText = '[PLAY]';
@@ -252,12 +260,16 @@ function playTrack(track, newQueue, index) {
     artistName.innerText = (track.artist || 'UNKNOWN ARTIST').toUpperCase();
 
     let albumStr = 'LIBRARY ROOT';
-    if (track.path) {
+    if (track.isStream) {
+        albumStr = '▶ STREAMING (NOT IN LIBRARY)';
+    } else if (track.path) {
         const parts = track.path.split('/');
         if (parts.length > 3) {
             albumStr = `PLAYLIST: ${decodeURIComponent(parts[2]).toUpperCase()}`;
-        } else if (track.isSearch) {
-            albumStr = 'DOWNLOADED (SEARCH)';
+        } else if (track.isSearch || track.downloaded) {
+            albumStr = track.downloadFolder
+                ? `PLAYLIST: ${track.downloadFolder.toUpperCase()}`
+                : 'DOWNLOADED (LIBRARY ROOT)';
         }
     }
     albumName.innerText = albumStr;
@@ -399,7 +411,21 @@ searchForm.addEventListener('submit', async (e) => {
                 </div>
             `;
 
-            item.addEventListener('click', () => {
+            // Main click → stream and play
+            item.querySelector('.list-item-main').addEventListener('click', () => {
+                streamAndPlay(track);
+            });
+            item.querySelector('.list-item-meta').addEventListener('click', (e) => {
+                e.stopPropagation(); // don't double-trigger on meta area
+                streamAndPlay(track);
+            });
+
+            // Download button in meta section
+            const miniBtn = item.querySelector('.mini-btn');
+            miniBtn.innerText = '↓ DL';
+            miniBtn.title = 'Download to library root';
+            miniBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 downloadAndPlay(track);
             });
 
@@ -413,8 +439,35 @@ searchForm.addEventListener('submit', async (e) => {
     }
 });
 
-// Download and start playing search track
-async function downloadAndPlay(track) {
+// Stream audio from search result (no download — proxies through server)
+async function streamAndPlay(track) {
+    searchStatus.innerText = 'STREAMING...';
+    searchStatus.classList.add('blink');
+
+    // Build the proxy stream URL
+    const streamUrl = `/api/stream?url=${encodeURIComponent(track.url)}`;
+
+    const playableTrack = {
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        path: streamUrl,          // stream proxy URL for <audio> src
+        videoUrl: track.url,       // original YouTube URL for later download
+        duration: track.duration,
+        durationString: track.duration_string,
+        isStream: true,
+        isSearch: true,
+        downloaded: false
+    };
+
+    searchStatus.classList.remove('blink');
+    searchStatus.innerText = 'STREAMING';
+
+    playTrack(playableTrack, [playableTrack], 0);
+}
+
+// Download and start playing search track (to library root, or optionally a folder)
+async function downloadAndPlay(track, targetFolder = '') {
     searchStatus.innerText = 'DOWNLOADING SONG...';
     searchStatus.classList.add('blink');
     
@@ -424,6 +477,9 @@ async function downloadAndPlay(track) {
     viewSearch.appendChild(loaderOverlay);
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 130000); // 130s > server's 120s
+
         const res = await fetch('/api/download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -432,8 +488,10 @@ async function downloadAndPlay(track) {
                 url: track.url,
                 title: track.title,
                 artist: track.artist
-            })
+            }),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
@@ -451,8 +509,13 @@ async function downloadAndPlay(track) {
             artist: track.artist,
             path: data.path,
             filename: data.filename,
+            videoUrl: track.url,
             duration: track.duration,
-            isSearch: true
+            durationString: track.duration_string,
+            isStream: false,
+            isSearch: false,       // now a library track
+            downloaded: true,
+            downloadFolder: targetFolder
         };
 
         // Play directly in browser
@@ -463,7 +526,11 @@ async function downloadAndPlay(track) {
         searchStatus.classList.remove('blink');
         searchStatus.innerText = 'DOWNLOAD ERROR';
         loaderOverlay.remove();
-        alert(err.message || 'Could not download track. Check connections.');
+        if (err.name === 'AbortError') {
+            alert('Download timed out. The server took too long to respond. Try again.');
+        } else {
+            alert(err.message || 'Could not download track. Check connections.');
+        }
     }
 }
 
@@ -697,10 +764,18 @@ async function deleteSong(songPath) {
     }
 }
 
-// Move Modal Logic
+// Move Modal Logic (also used for download-to-library from stream)
 async function openMoveModal(song) {
     songToMove = song;
     modalFolderList.innerHTML = '';
+
+    // Update modal title based on whether this is a stream or local file
+    const modalTitle = document.querySelector('#folder-modal .modal-title');
+    if (modalTitle) {
+        modalTitle.innerText = (song.isStream && !song.downloaded)
+            ? '> DOWNLOAD STREAM TO:'
+            : '> ADD PLAYING SONG TO:';
+    }
 
     // Always fetch fresh folder list
     try {
@@ -713,7 +788,9 @@ async function openMoveModal(song) {
 
     const rootOption = document.createElement('div');
     rootOption.className = 'modal-item';
-    rootOption.innerText = '[ MOVE TO LIBRARY ROOT ]';
+    rootOption.innerText = (song.isStream && !song.downloaded)
+        ? '[ DOWNLOAD TO LIBRARY ROOT ]'
+        : '[ MOVE TO LIBRARY ROOT ]';
     rootOption.addEventListener('click', () => moveSongTo(''));
     modalFolderList.appendChild(rootOption);
 
@@ -733,6 +810,56 @@ async function openMoveModal(song) {
 async function moveSongTo(folderName) {
     if (!songToMove) return;
 
+    // If this is a streamed track (not yet downloaded), download it to the folder
+    if (songToMove.isStream && !songToMove.downloaded) {
+        try {
+            const res = await fetch('/api/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: songToMove.id,
+                    url: songToMove.videoUrl,
+                    title: songToMove.title,
+                    folder: folderName || undefined
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Download failed');
+            }
+            const data = await res.json();
+
+            // Update the current track to reflect the downloaded file
+            if (currentTrack && currentTrack.id === songToMove.id) {
+                currentTrack.path = data.path;
+                currentTrack.filename = data.filename;
+                currentTrack.isStream = false;
+                currentTrack.isSearch = false;
+                currentTrack.downloaded = true;
+                currentTrack.downloadFolder = folderName;
+
+                // Update audio source to local file for future plays
+                audio.src = data.path;
+
+                // Update UI
+                if (folderName) {
+                    albumName.innerText = `PLAYLIST: ${folderName.toUpperCase()}`;
+                } else {
+                    albumName.innerText = 'DOWNLOADED (LIBRARY ROOT)';
+                }
+            }
+
+            modalOverlay.classList.add('hidden');
+            songToMove = null;
+            loadLibrary();
+        } catch (err) {
+            alert(err.message || 'Could not download song to library');
+        }
+        return;
+    }
+
+    // Normal move for already-downloaded tracks
     try {
         const res = await fetch('/api/library/move', {
             method: 'POST',
@@ -749,6 +876,9 @@ async function moveSongTo(folderName) {
         if (currentTrack && currentTrack.path === songToMove.path) {
             const filename = songToMove.path.split('/').pop();
             currentTrack.path = folderName ? `/music/${folderName}/${filename}` : `/music/${filename}`;
+
+            // Update audio source
+            audio.src = currentTrack.path;
         }
 
         modalOverlay.classList.add('hidden');

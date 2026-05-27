@@ -2,6 +2,8 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import http from 'http';
+import https from 'https';
 import { spawn, execSync } from 'child_process';
 
 const app = express();
@@ -61,8 +63,11 @@ function findSongById(id, dir = MUSIC_DIR) {
         if (item.isDirectory()) {
             const found = findSongById(id, fullPath);
             if (found) return found;
-        } else if (item.isFile() && item.name.includes(`_[${id}].mp3`)) {
-            return fullPath;
+        } else if (item.isFile()) {
+            // Match any audio extension: .mp3, .flac, .m4a, .opus, .ogg, .wav
+            if (/_\x5C[${id}\x5C]\.(mp3|flac|m4a|opus|ogg|wav|aac|webm)$/.test(item.name)) {
+                return fullPath;
+            }
         }
     }
     return null;
@@ -394,8 +399,8 @@ app.get('/api/search', async (req, res) => {
         const child = spawn(YT_DLP_PATH, [
             `ytsearch5:${query}`,
             '--dump-json',
-            '--no-download',
-            '--no-playlist'
+            '--no-playlist',
+            '--flat-playlist'
         ]);
 
         let stdout = '';
@@ -451,15 +456,30 @@ app.get('/api/search', async (req, res) => {
 
 // API: Download song
 app.post('/api/download', async (req, res) => {
-    const { id, url, title } = req.body;
+    const { id, url, title, folder } = req.body;
     if (!id || !url) {
         return res.status(400).json({ error: 'id and url are required' });
     }
 
-    console.log(`[Download] Request for ID: ${id}, Title: "${title || 'Unknown'}"`);
+    // Extract actual YouTube video ID from URL (more reliable than passed id)
+    const videoId = (url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/) || [])[1] || id;
+    console.log(`[Download] Video ID: ${videoId} (passed: ${id})`);
 
-    // 1. Check if song already exists in the library
-    const existingFilePath = findSongById(id);
+    const targetDir = folder
+        ? getSafePath(folder.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim())
+        : MUSIC_DIR;
+
+    // Ensure target directory exists
+    if (!fs.existsSync(targetDir)) {
+        try { fs.mkdirSync(targetDir, { recursive: true }); } catch (e) {
+            return res.status(400).json({ error: 'Invalid target folder' });
+        }
+    }
+
+    console.log(`[Download] Request for ID: ${id}, Title: "${title || 'Unknown'}", Folder: "${folder || 'root'}"`);
+
+    // 1. Check if song already exists in the library (anywhere)
+    const existingFilePath = findSongById(videoId);
     if (existingFilePath) {
         const relativeToMusic = path.relative(MUSIC_DIR, existingFilePath);
         console.log(`[Download] Song already exists at: ${relativeToMusic}`);
@@ -471,8 +491,8 @@ app.post('/api/download', async (req, res) => {
         });
     }
 
-    // 2. Download via yt-dlp to MUSIC_DIR
-    const targetTemplate = path.join(MUSIC_DIR, '%(title)s_[%(id)s].temp.%(ext)s');
+    // 2. Download via yt-dlp to target directory
+    const targetTemplate = path.join(targetDir, '%(title)s_[%(id)s].temp.%(ext)s');
 
     try {
         console.log(`[Download] Running yt-dlp for url: ${url}`);
@@ -481,6 +501,8 @@ app.post('/api/download', async (req, res) => {
             '--audio-format', 'mp3',
             '--audio-quality', '0',
             '--restrict-filenames',
+            '--no-playlist',
+            '--flat-playlist',
             '-o', targetTemplate,
             url
         ]);
@@ -491,7 +513,18 @@ app.post('/api/download', async (req, res) => {
         let stderr = '';
         let responded = false;
 
+        // Timeout: kill the download if it takes longer than 120 seconds
+        const downloadTimeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                console.error('[Download] Timed out after 120s');
+                child.kill('SIGKILL');
+                res.status(500).json({ error: 'Download timed out' });
+            }
+        }, 120000);
+
         child.on('error', (err) => {
+            clearTimeout(downloadTimeout);
             console.error('[Download] Failed to spawn yt-dlp:', err.message);
             if (!responded) {
                 responded = true;
@@ -502,6 +535,7 @@ app.post('/api/download', async (req, res) => {
         child.stderr.on('data', (data) => { stderr += data; });
         
         child.on('close', (code) => {
+            clearTimeout(downloadTimeout);
             if (responded) return;
             responded = true;
             if (code !== 0) {
@@ -510,23 +544,40 @@ app.post('/api/download', async (req, res) => {
             }
 
             // Find the downloaded temp file
-            const files = fs.readdirSync(MUSIC_DIR);
-            const tempFile = files.find(f => f.includes(`_[${id}].temp.mp3`));
+            const files = fs.readdirSync(targetDir);
+            const tempFile = files.find(f => f.includes(`_[${videoId}].temp.mp3`));
             if (!tempFile) {
-                console.error(`Downloaded file not found with pattern: _[${id}].temp.mp3`);
+                console.error(`Downloaded file not found with pattern: _[${videoId}].temp.mp3 in ${targetDir}`);
                 return res.status(500).json({ error: 'Downloaded file not found on disk' });
             }
 
-            const oldPath = path.join(MUSIC_DIR, tempFile);
+            const oldPath = path.join(targetDir, tempFile);
             const newFile = tempFile.replace('.temp.mp3', '.mp3');
-            const newPath = path.join(MUSIC_DIR, newFile);
+            const newPath = path.join(targetDir, newFile);
 
-            fs.renameSync(oldPath, newPath);
+            try {
+                if (fs.existsSync(newPath)) {
+                    // Target filename already exists — remove the old one first
+                    fs.unlinkSync(newPath);
+                }
+                fs.renameSync(oldPath, newPath);
+            } catch (renameErr) {
+                console.error(`[Download] Rename failed: ${renameErr.message}`);
+                return res.status(500).json({ error: 'Failed to finalize download file' });
+            }
+
             console.log(`[Download] Complete! Saved to: ${newFile}`);
+            if (stderr) {
+                console.log(`[Download] yt-dlp stderr: ${stderr.slice(0, 500)}`);
+            }
+
+            // Build the public-facing path
+            const relativeToMusic = path.relative(MUSIC_DIR, newPath);
+            const publicPath = `/music/${relativeToMusic}`;
 
             res.json({
                 status: 'success',
-                path: `/music/${newFile}`,
+                path: publicPath,
                 filename: newFile,
                 message: 'Downloaded successfully'
             });
@@ -535,6 +586,107 @@ app.post('/api/download', async (req, res) => {
         console.error('Download execution error:', err);
         res.status(500).json({ error: 'Internal server error during download' });
     }
+});
+
+// API: Stream audio from URL (no download — proxies YouTube audio via yt-dlp)
+app.get('/api/stream', (req, res) => {
+    const url = req.query.url;
+    if (!url) {
+        return res.status(400).json({ error: 'url query parameter is required' });
+    }
+
+    console.log(`[Stream] Proxying audio for: ${url.substring(0, 80)}...`);
+
+    // Use yt-dlp to extract direct audio URL
+    const ytdlp = spawn(YT_DLP_PATH, [
+        '-g', '-f', 'bestaudio[ext=m4a]/bestaudio',
+        '--no-playlist',
+        '--no-warnings',
+        url
+    ]);
+
+    let stdout = '';
+    let stderr = '';
+    ytdlp.stdout.on('data', d => stdout += d);
+    ytdlp.stderr.on('data', d => stderr += d);
+
+    const cleanup = () => {
+        try { ytdlp.kill('SIGKILL'); } catch (e) {}
+    };
+
+    ytdlp.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`[Stream] yt-dlp failed with code ${code}: ${stderr}`);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to extract audio URL. Video may be unavailable.' });
+            }
+            return;
+        }
+
+        const audioUrl = stdout.trim().split('\n')[0];
+        if (!audioUrl) {
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'No audio stream found for this video' });
+            }
+            return;
+        }
+
+        console.log(`[Stream] Got URL: ${audioUrl.substring(0, 80)}...`);
+
+        // Proxy the audio through our server (same-origin → no CORS issues, visualizer works)
+        const client = audioUrl.startsWith('https') ? https : http;
+        const proxyReq = client.get(audioUrl, (proxyRes) => {
+            // Handle redirects
+            if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+                const redirectUrl = proxyRes.headers.location;
+                const redirectClient = redirectUrl.startsWith('https') ? https : http;
+                redirectClient.get(redirectUrl, (redirectRes) => {
+                    res.setHeader('Content-Type', redirectRes.headers['content-type'] || 'audio/mp4');
+                    if (redirectRes.headers['content-length']) {
+                        res.setHeader('Content-Length', redirectRes.headers['content-length']);
+                    }
+                    res.setHeader('Accept-Ranges', 'bytes');
+                    redirectRes.pipe(res);
+                }).on('error', (err) => {
+                    console.error(`[Stream] Redirect fetch error: ${err.message}`);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: 'Stream fetch failed after redirect' });
+                    }
+                });
+                return;
+            }
+
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mp4');
+            if (proxyRes.headers['content-length']) {
+                res.setHeader('Content-Length', proxyRes.headers['content-length']);
+            }
+            res.setHeader('Accept-Ranges', 'bytes');
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+            console.error(`[Stream] Proxy fetch error: ${err.message}`);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to fetch audio stream' });
+            }
+        });
+
+        // Cleanup when client disconnects
+        res.on('close', () => {
+            proxyReq.destroy();
+            cleanup();
+        });
+    });
+
+    ytdlp.on('error', (err) => {
+        console.error(`[Stream] yt-dlp spawn error: ${err.message}`);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'yt-dlp is not installed or failed to start' });
+        }
+    });
+
+    // Cleanup on client abort
+    req.on('close', cleanup);
 });
 
 // API: List library contents
